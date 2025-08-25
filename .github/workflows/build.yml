@@ -1,4 +1,4 @@
-name: Build Music Metadata Processor
+name: Build Music Metadata Processor - Multiplatform
 
 on:
   push:
@@ -10,6 +10,9 @@ jobs:
     strategy:
       matrix:
         include:
+          - architecture: x86
+            target: i686
+            python_version: '3.10'
           - architecture: x64
             target: x86_64
             python_version: '3.10'
@@ -33,38 +36,34 @@ jobs:
 
     - name: Install dependencies with retry
       run: |
-        # 设置 pip 重试和超时
         python -m pip install --upgrade pip
         pip config set global.timeout 120
         pip config set global.retries 3
         
-        # 安装所有依赖，包括 flask_cors
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
-        
-        # 安装 PySide6
-        echo "正在安装 PySide6..."
         pip install "pyside6==6.6.1" --timeout=180
         
-        # 验证安装
         python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
         python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
 
-    - name: Create icon file if missing
+    - name: Create Windows icon if missing
       run: |
-        # 如果图标不存在，创建一个简单的占位图标
         if (-not (Test-Path "icon.ico")) {
-          echo "图标文件不存在，创建占位图标..."
-          # 这里可以添加创建简单图标的逻辑，或者跳过图标参数
-          # 暂时先创建一个空文件
-          echo "placeholder" > icon.ico
+          echo "Windows图标文件不存在，创建占位图标..."
+          # 可以使用Python创建简单图标或下载一个默认图标
+          python -c "
+          from PIL import Image, ImageDraw
+          img = Image.new('RGB', (256, 256), color='blue')
+          d = ImageDraw.Draw(img)
+          d.text((80, 120), 'MMP', fill='white')
+          img.save('icon.ico', format='ICO', sizes=[(256, 256)])
+          "
         }
 
-    - name: Build executable
+    - name: Build Windows executable
       run: |
-        # 设置构建参数
-        $buildName = "MusicMetadataProcessor_${{ matrix.target }}"
+        $buildName = "MusicMetadataProcessor_win_${{ matrix.target }}"
         
-        # 构建命令，添加 flask_cors 相关隐藏导入
         python -m PyInstaller `
           --onefile `
           --windowed `
@@ -101,25 +100,270 @@ jobs:
           --noconfirm `
           app_gui.py
 
-        # 检查构建是否成功
         if (Test-Path "dist/$buildName.exe") {
-          echo "✅ 构建成功！"
-          # 重命名以包含架构信息
+          echo "✅ Windows构建成功！"
           Move-Item "dist/$buildName.exe" "dist/MusicMetadataProcessor_windows_${{ matrix.target }}.exe"
         } else {
-          echo "❌ 构建失败，输出文件不存在"
+          echo "❌ Windows构建失败"
           exit 1
         }
 
-    - name: Upload artifacts
+    - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
       with:
         name: windows-${{ matrix.target }}-build
         path: dist/
         if-no-files-found: error
 
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - architecture: x64
+            target: x86_64
+            python_version: '3.10'
+          - architecture: arm64
+            target: arm64
+            python_version: '3.10'
+
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python_version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python_version }}
+        architecture: ${{ matrix.architecture }}
+
+    - name: Display Python info
+      run: |
+        python --version
+        python -c "import platform; print(f'Architecture: {platform.machine()}')"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
+        pip install "pyside6==6.6.1"
+        pip install Pillow  # 用于创建图标
+        
+        python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
+        python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
+
+    - name: Create macOS icon if missing
+      run: |
+        if [ ! -f "icon.icns" ]; then
+          echo "macOS图标文件不存在，创建PNG图标..."
+          python -c "
+          from PIL import Image, ImageDraw
+          img = Image.new('RGB', (512, 512), color='blue')
+          d = ImageDraw.Draw(img)
+          d.text((180, 230), 'MMP', fill='white', size=100)
+          img.save('icon.png', format='PNG')
+          "
+          
+          # 如果有iconutil工具，可以创建icns，否则使用PNG
+          if command -v iconutil &> /dev/null; then
+            mkdir icon.iconset
+            sips -z 16 16 icon.png --out icon.iconset/icon_16x16.png
+            sips -z 32 32 icon.png --out icon.iconset/icon_16x16@2x.png
+            sips -z 32 32 icon.png --out icon.iconset/icon_32x32.png
+            sips -z 64 64 icon.png --out icon.iconset/icon_32x32@2x.png
+            sips -z 128 128 icon.png --out icon.iconset/icon_128x128.png
+            sips -z 256 256 icon.png --out icon.iconset/icon_128x128@2x.png
+            sips -z 256 256 icon.png --out icon.iconset/icon_256x256.png
+            sips -z 512 512 icon.png --out icon.iconset/icon_256x256@2x.png
+            sips -z 512 512 icon.png --out icon.iconset/icon_512x512.png
+            iconutil -c icns icon.iconset -o icon.icns
+            rm -rf icon.iconset
+          fi
+        fi
+
+    - name: Build executable for macOS
+      run: |
+        buildName="MusicMetadataProcessor_mac_${{ matrix.target }}"
+        
+        # 如果有icns文件使用它，否则使用PNG
+        if [ -f "icon.icns" ]; then
+          iconArg="--icon=icon.icns"
+          iconData="icon.icns:."
+        else
+          iconArg="--icon=icon.png"
+          iconData="icon.png:."
+        fi
+        
+        python -m PyInstaller \
+          --onefile \
+          --windowed \
+          --name "$buildName" \
+          $iconArg \
+          --add-data "$iconData" \
+          --hidden-import=flask \
+          --hidden-import=flask_cors \
+          --hidden-import=flask_cors.core \
+          --hidden-import=mutagen \
+          --hidden-import=requests \
+          --hidden-import=PySide6 \
+          --hidden-import=PySide6.QtWidgets \
+          --hidden-import=PySide6.QtCore \
+          --hidden-import=PySide6.QtGui \
+          --hidden-import=PySide6.QtNetwork \
+          --hidden-import=werkzeug.serving \
+          --hidden-import=werkzeug.middleware.dispatcher \
+          --hidden-import=chardet \
+          --hidden-import=charset_normalizer \
+          --hidden-import=idna \
+          --hidden-import=urllib3 \
+          --hidden-import=certifi \
+          --hidden-import=ssl \
+          --hidden-import=json \
+          --hidden-import=os \
+          --hidden-import=sys \
+          --hidden-import=threading \
+          --hidden-import=time \
+          --hidden-import=re \
+          --hidden-import=base64 \
+          --hidden-import=hashlib \
+          --clean \
+          --noconfirm \
+          app_gui.py
+
+        if [ -f "dist/$buildName" ]; then
+          echo "✅ macOS构建成功！"
+          mv "dist/$buildName" "dist/MusicMetadataProcessor_macos_${{ matrix.target }}"
+        else
+          echo "❌ macOS构建失败"
+          exit 1
+        fi
+
+    - name: Create macOS app bundle (可选)
+      run: |
+        # 如果需要创建.app bundle，可以添加此步骤
+        echo "如需创建.app bundle，请参考PyInstaller的--osx-bundle-identifier选项"
+
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-${{ matrix.target }}-build
+        path: dist/
+        if-no-files-found: error
+
+  build-linux:
+    strategy:
+      matrix:
+        include:
+          - architecture: x64
+            target: x86_64
+            python_version: '3.10'
+          - architecture: ARM64
+            target: aarch64
+            python_version: '3.10'
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python_version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python_version }}
+        architecture: ${{ matrix.architecture }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgl1 libglib2.0-0
+
+    - name: Display Python info
+      run: |
+        python --version
+        python -c "import platform; print(f'Architecture: {platform.machine()}')"
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
+        pip install "pyside6==6.6.1"
+        pip install Pillow
+        
+        python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
+        python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
+
+    - name: Create Linux icon if missing
+      run: |
+        if [ ! -f "icon.png" ]; then
+          echo "Linux图标文件不存在，创建PNG图标..."
+          python -c "
+          from PIL import Image, ImageDraw
+          img = Image.new('RGB', (256, 256), color='green')
+          d = ImageDraw.Draw(img)
+          d.text((80, 120), 'MMP', fill='white')
+          img.save('icon.png', format='PNG')
+          "
+        fi
+
+    - name: Build executable for Linux
+      run: |
+        buildName="MusicMetadataProcessor_linux_${{ matrix.target }}"
+        
+        python -m PyInstaller \
+          --onefile \
+          --windowed \
+          --name "$buildName" \
+          --icon=icon.png \
+          --add-data "icon.png:." \
+          --hidden-import=flask \
+          --hidden-import=flask_cors \
+          --hidden-import=flask_cors.core \
+          --hidden-import=mutagen \
+          --hidden-import=requests \
+          --hidden-import=PySide6 \
+          --hidden-import=PySide6.QtWidgets \
+          --hidden-import=PySide6.QtCore \
+          --hidden-import=PySide6.QtGui \
+          --hidden-import=PySide6.QtNetwork \
+          --hidden-import=werkzeug.serving \
+          --hidden-import=werkzeug.middleware.dispatcher \
+          --hidden-import=chardet \
+          --hidden-import=charset_normalizer \
+          --hidden-import=idna \
+          --hidden-import=urllib3 \
+          --hidden-import=certifi \
+          --hidden-import=ssl \
+          --hidden-import=json \
+          --hidden-import=os \
+          --hidden-import=sys \
+          --hidden-import=threading \
+          --hidden-import=time \
+          --hidden-import=re \
+          --hidden-import=base64 \
+          --hidden-import=hashlib \
+          --clean \
+          --noconfirm \
+          app_gui.py
+
+        if [ -f "dist/$buildName" ]; then
+          echo "✅ Linux构建成功！"
+          mv "dist/$buildName" "dist/MusicMetadataProcessor_linux_${{ matrix.target }}"
+        else
+          echo "❌ Linux构建失败"
+          exit 1
+        fi
+
+    - name: Upload Linux artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-${{ matrix.target }}-build
+        path: dist/
+        if-no-files-found: error
+
   create-release:
-    needs: build-windows
+    needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     
@@ -129,29 +373,50 @@ jobs:
       with:
         path: artifacts
 
+    - name: List downloaded artifacts
+      run: |
+        find artifacts -type f -name "*" | sort
+
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          artifacts/**/*.exe
+          artifacts/**/MusicMetadataProcessor_*
         body: |
-          # 音乐元数据处理器
+          # 音乐元数据处理器 - 多平台版本
 
           ## 版本信息
           - 构建时间: ${{ github.event.repository.updated_at }}
           - Python版本: 3.10
-          - 架构: x86_64 (64位)
+
+          ## 可用平台
+          - Windows x86 (32位) - .exe 文件
+          - Windows x86_64 (64位) - .exe 文件
+          - macOS x86_64 (Intel) - 无扩展名可执行文件
+          - macOS arm64 (Apple Silicon) - 无扩展名可执行文件
+          - Linux x86_64 (64位) - 无扩展名可执行文件
+          - Linux aarch64 (ARM64) - 无扩展名可执行文件
 
           ## 使用说明
-          1. 下载对应的可执行文件
+          ### Windows
+          1. 下载对应的.exe文件
           2. 双击运行即可
 
-          ## 系统要求
-          - Windows 7 或更高版本
-          - .NET Framework 4.5 或更高版本
+          ### macOS
+          1. 下载对应架构的文件
+          2. 打开终端，导航到下载目录
+          3. 给文件添加执行权限: `chmod +x MusicMetadataProcessor_macos_*`
+          4. 运行: `./MusicMetadataProcessor_macos_*`
+          5. 或者右键点击文件，选择"打开"
+
+          ### Linux
+          1. 下载对应架构的文件
+          2. 给文件添加执行权限: `chmod +x MusicMetadataProcessor_linux_*`
+          3. 运行: `./MusicMetadataProcessor_linux_*`
 
           ## 注意事项
-          - 首次运行可能会被Windows Defender拦截，请选择"更多信息"->"仍要运行"
-          - 确保系统中已安装必要的Visual C++运行时库
+          - Windows版本首次运行可能会被Windows Defender拦截
+          - macOS版本可能需要手动允许来自未知开发者的应用
+          - Linux版本需要确保已安装必要的图形库
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
