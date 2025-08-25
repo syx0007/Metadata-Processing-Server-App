@@ -1,29 +1,20 @@
-name: Build Music Metadata Processor - Windows Only
+name: Build Music Metadata Processor
 
 on:
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Reason for manual run'
-        required: false
-        default: 'Manual trigger'
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 jobs:
   build-windows:
     strategy:
       matrix:
         include:
-          - architecture: x86
-            target: x86
-            python_version: '3.10'
           - architecture: x64
-            target: x64
+            target: x86_64
             python_version: '3.10'
 
     runs-on: windows-latest
-    name: Build Windows ${{ matrix.target }}
 
     steps:
     - name: Checkout code
@@ -35,40 +26,45 @@ jobs:
         python-version: ${{ matrix.python_version }}
         architecture: ${{ matrix.architecture }}
 
-    - name: Cache pip packages
-      uses: actions/cache@v3
-      with:
-        path: ~\AppData\Local\pip\Cache
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
+    - name: Display Python info
       run: |
+        python --version
+        python -c "import platform; print(f'Architecture: {platform.machine()}')"
+
+    - name: Install dependencies with retry
+      run: |
+        # 设置 pip 重试和超时
         python -m pip install --upgrade pip
+        pip config set global.timeout 120
+        pip config set global.retries 3
+        
+        # 安装所有依赖，包括 flask_cors
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
-        pip install "pyside6==6.6.1" --timeout=1000 --retries=3 --trusted-host files.pythonhosted.org
-
-    - name: Verify PySide6 installation
-      run: |
+        
+        # 安装 PySide6
+        echo "正在安装 PySide6..."
+        pip install "pyside6==6.6.1" --timeout=180
+        
+        # 验证安装
+        python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
         python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
 
     - name: Create icon file if missing
       run: |
+        # 如果图标不存在，创建一个简单的占位图标
         if (-not (Test-Path "icon.ico")) {
-          echo "Creating placeholder icon..."
-          # 创建一个有效的ICO文件占位符
-          $iconContent = [byte[]]@(0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x68, 0x04, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00)
-          [System.IO.File]::WriteAllBytes("icon.ico", $iconContent)
+          echo "图标文件不存在，创建占位图标..."
+          # 这里可以添加创建简单图标的逻辑，或者跳过图标参数
+          # 暂时先创建一个空文件
+          echo "placeholder" > icon.ico
         }
 
-    - name: Build Windows executable
+    - name: Build executable
       run: |
-        $buildName = "MusicMetadataProcessor_windows_${{ matrix.target }}"
+        # 设置构建参数
+        $buildName = "MusicMetadataProcessor_${{ matrix.target }}"
         
-        # 显示当前目录结构用于调试
-        Get-ChildItem .
-        
+        # 构建命令，添加 flask_cors 相关隐藏导入
         python -m PyInstaller `
           --onefile `
           --windowed `
@@ -77,26 +73,45 @@ jobs:
           --add-data "icon.ico;." `
           --hidden-import=flask `
           --hidden-import=flask_cors `
+          --hidden-import=flask_cors.core `
           --hidden-import=mutagen `
           --hidden-import=requests `
           --hidden-import=PySide6 `
+          --hidden-import=PySide6.QtWidgets `
           --hidden-import=PySide6.QtCore `
           --hidden-import=PySide6.QtGui `
-          --hidden-import=PySide6.QtWidgets `
+          --hidden-import=PySide6.QtNetwork `
+          --hidden-import=werkzeug.serving `
+          --hidden-import=werkzeug.middleware.dispatcher `
+          --hidden-import=chardet `
+          --hidden-import=charset_normalizer `
+          --hidden-import=idna `
+          --hidden-import=urllib3 `
+          --hidden-import=certifi `
+          --hidden-import=ssl `
+          --hidden-import=json `
+          --hidden-import=os `
+          --hidden-import=sys `
+          --hidden-import=threading `
+          --hidden-import=time `
+          --hidden-import=re `
+          --hidden-import=base64 `
+          --hidden-import=hashlib `
           --clean `
           --noconfirm `
           app_gui.py
 
+        # 检查构建是否成功
         if (Test-Path "dist/$buildName.exe") {
-          echo "✅ Windows ${{ matrix.target }} build successful!"
-          echo "File size: $( (Get-Item "dist/$buildName.exe").Length ) bytes"
+          echo "✅ 构建成功！"
+          # 重命名以包含架构信息
+          Move-Item "dist/$buildName.exe" "dist/MusicMetadataProcessor_windows_${{ matrix.target }}.exe"
         } else {
-          echo "❌ Build failed - checking dist directory:"
-          Get-ChildItem "dist" -ErrorAction SilentlyContinue
+          echo "❌ 构建失败，输出文件不存在"
           exit 1
         }
 
-    - name: Upload Windows artifacts
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: windows-${{ matrix.target }}-build
@@ -104,7 +119,7 @@ jobs:
         if-no-files-found: error
 
   create-release:
-    needs: [build-windows]
+    needs: build-windows
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     
@@ -114,39 +129,29 @@ jobs:
       with:
         path: artifacts
 
-    - name: List all artifacts
-      run: |
-        echo "Available artifacts:"
-        find artifacts -type f -name "*" | while read file; do
-          echo "  - $file"
-          ls -la "$file"
-        done
-
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          artifacts/**/*
+          artifacts/**/*.exe
         body: |
-          # 🎵 音乐元数据处理器 - Windows 版本
+          # 音乐元数据处理器
 
-          ## 📦 下载说明
-
-          ### Windows 系统
-          - **x86 (32位)**: `MusicMetadataProcessor_windows_x86.exe`
-          - **x64 (64位)**: `MusicMetadataProcessor_windows_x64.exe`
-
-          ## 🚀 使用说明
-          1. 下载对应的 `.exe` 文件
-          2. 双击运行即可
-
-          ## ⚠️ 注意事项
-          - 首次运行可能会被Windows Defender拦截，请选择"更多信息"->"仍要运行"
-          - 建议下载与您系统架构匹配的版本
-
-          ## 📊 版本信息
-          - 版本: ${{ github.ref_name }}
+          ## 版本信息
           - 构建时间: ${{ github.event.repository.updated_at }}
           - Python版本: 3.10
+          - 架构: x86_64 (64位)
+
+          ## 使用说明
+          1. 下载对应的可执行文件
+          2. 双击运行即可
+
+          ## 系统要求
+          - Windows 7 或更高版本
+          - .NET Framework 4.5 或更高版本
+
+          ## 注意事项
+          - 首次运行可能会被Windows Defender拦截，请选择"更多信息"->"仍要运行"
+          - 确保系统中已安装必要的Visual C++运行时库
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
