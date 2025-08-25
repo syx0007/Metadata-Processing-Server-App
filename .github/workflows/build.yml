@@ -1,0 +1,116 @@
+name: Build Music Metadata Processor
+
+on:
+  push:
+    tags: ['v*']  # 当推送标签时触发（如 v1.0.0）
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-windows:
+    strategy:
+      matrix:
+        include:
+          - architecture: x86
+            target: x86
+          - architecture: x64
+            target: x86_64
+          - architecture: arm64
+            target: arm64
+
+    runs-on: windows-latest  # 使用Windows构建环境
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'  # 指定Python版本
+        architecture: ${{ matrix.architecture }}
+
+    - name: Display Python info
+      run: |
+        python --version
+        python -c "import platform; print(f'Architecture: {platform.machine()}')"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller flask mutagen requests pyside6
+
+    - name: Download icon file
+      run: |
+        # 如果图标在项目中，可以跳过这一步
+        # 如果图标在其他位置，可以在这里下载
+        # 或者确保图标文件在代码库中
+        if (-not (Test-Path "icon.ico")) {
+          # 这里可以添加下载图标的代码
+          Write-Host "图标文件不存在，请确保图标在代码库中"
+        }
+
+    - name: Build executable
+      run: |
+        python -m PyInstaller `
+          --onefile `
+          --windowed `
+          --name MusicMetadataProcessor_${{ matrix.target }} `
+          --icon=icon.ico `
+          --add-data "icon.ico;." `
+          --hidden-import=flask `
+          --hidden-import=mutagen `
+          --hidden-import=requests `
+          --hidden-import=PySide6 `
+          --hidden-import=werkzeug.serving `
+          --clean `
+          --noconfirm `
+          gui.py
+
+    - name: Create release assets
+      run: |
+        # 重命名文件以包含架构信息
+        $exePath = "dist/MusicMetadataProcessor_${{ matrix.target }}.exe"
+        if (Test-Path $exePath) {
+          $newName = "MusicMetadataProcessor_windows_${{ matrix.target }}.exe"
+          Move-Item $exePath "dist/$newName"
+        }
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-${{ matrix.target }}-build
+        path: dist/
+        if-no-files-found: error
+
+  create-release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifacts/**/*.exe
+        body: |
+          多架构版本的音乐元数据处理器
+          
+          ## 包含版本:
+          - Windows x86 (32位)
+          - Windows x86_64 (64位)
+          - Windows ARM64
+          
+          ## 使用说明:
+          请根据您的系统架构选择合适的版本。
+          
+          ## 系统要求:
+          - Windows 7+
+          - .NET Framework 4.5+
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
