@@ -121,7 +121,7 @@ jobs:
         python -c "import platform; print('Architecture: ' + platform.machine())"
         python -c "import struct; print('Pointer size: ' + str(struct.calcsize('P') * 8) + ' bits')"
 
-    - name: Install dependencies
+    - name: Install dependencies for x86
       run: |
         python -m pip install --upgrade pip
         pip config set global.timeout 120
@@ -130,28 +130,52 @@ jobs:
         # 安装核心依赖
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
         
-        # 安装 PySide6 (32位使用兼容版本)
-        echo "正在安装 PySide6 (x86)..."
-        # 尝试安装较旧的兼容版本，或者使用 PyQt5 作为替代
-        pip install "pyside6==6.5.3" --timeout=180 || (
-          echo "PySide6 6.5.3 安装失败，尝试安装 PyQt5 作为替代..."
-          pip install pyqt5==5.15.9
-        )
+        # 尝试安装 PySide6 的兼容版本
+        echo "正在尝试安装 PySide6 兼容版本..."
+        $pysideInstalled = $false
+        
+        # 尝试多个可能的兼容版本
+        $versions = @("6.5.3", "6.5.2", "6.5.1", "6.5.0", "6.4.3", "6.4.2")
+        
+        foreach ($version in $versions) {
+            echo "尝试安装 PySide6 $version"
+            pip install "pyside6==$version" --timeout=120
+            if ($LASTEXITCODE -eq 0) {
+                $pysideInstalled = $true
+                echo "✅ PySide6 $version 安装成功"
+                break
+            } else {
+                echo "❌ PySide6 $version 安装失败"
+            }
+        }
+        
+        # 如果所有 PySide6 版本都失败，尝试安装 PyQt5
+        if (-not $pysideInstalled) {
+            echo "所有 PySide6 版本安装失败，尝试安装 PyQt5..."
+            pip install pyqt5==5.15.9
+            if ($LASTEXITCODE -eq 0) {
+                echo "✅ PyQt5 安装成功"
+            } else {
+                echo "❌ PyQt5 安装也失败"
+                exit 1
+            }
+        }
         
         # 验证安装
         python -c "import flask_cors; print('flask_cors version: ' + flask_cors.__version__)"
+        
         python -c "
-        try:
-            import PySide6
-            print('PySide6 version: ' + PySide6.__version__)
-        except ImportError:
-            try:
-                import PyQt5
-                print('PyQt5 version: ' + PyQt5.QtCore.QT_VERSION_STR)
-                print('使用 PyQt5 作为 GUI 后端')
-            except ImportError:
-                print('ERROR: 没有找到可用的 GUI 库')
-                exit(1)
+try:
+    import PySide6
+    print('PySide6 version: ' + PySide6.__version__)
+except ImportError:
+    try:
+        import PyQt5
+        print('PyQt5 version: ' + PyQt5.QtCore.QT_VERSION_STR)
+        print('使用 PyQt5 作为 GUI 后端')
+    except ImportError:
+        print('ERROR: 没有找到可用的 GUI 库')
+        exit(1)
         "
 
     - name: Create icon file if missing
@@ -168,18 +192,20 @@ jobs:
         # 检查使用哪个 GUI 库
         $guiLib = "PySide6"
         python -c "
-        try:
-            import PySide6
-        except ImportError:
-            try:
-                import PyQt5
-                print('PYQT5_MODE')
-            except ImportError:
-                print('NO_GUI_LIB')
-                exit(1)
+try:
+    import PySide6
+    print('PYSIDE6_MODE')
+except ImportError:
+    try:
+        import PyQt5
+        print('PYQT5_MODE')
+    except ImportError:
+        print('NO_GUI_LIB')
+        exit(1)
         " > gui_check.txt
         
-        if (Get-Content gui_check.txt | Select-String "PYQT5_MODE") {
+        $guiCheck = Get-Content gui_check.txt
+        if ($guiCheck -eq "PYQT5_MODE") {
             $guiLib = "PyQt5"
             echo "使用 PyQt5 构建 32 位版本"
         } else {
