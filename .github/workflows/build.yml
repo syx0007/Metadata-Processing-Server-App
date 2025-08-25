@@ -37,7 +37,7 @@ jobs:
         # 安装核心依赖
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
         
-        # 安装 PySide6
+        # 安装 PySide6 (64位使用最新版本)
         echo "正在安装 PySide6 (x64)..."
         pip install "pyside6==6.6.1" --timeout=180
         
@@ -130,13 +130,29 @@ jobs:
         # 安装核心依赖
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
         
-        # 安装 PySide6
+        # 安装 PySide6 (32位使用兼容版本)
         echo "正在安装 PySide6 (x86)..."
-        pip install "pyside6==6.6.1" --timeout=180
+        # 尝试安装较旧的兼容版本，或者使用 PyQt5 作为替代
+        pip install "pyside6==6.5.3" --timeout=180 || (
+          echo "PySide6 6.5.3 安装失败，尝试安装 PyQt5 作为替代..."
+          pip install pyqt5==5.15.9
+        )
         
         # 验证安装
         python -c "import flask_cors; print('flask_cors version: ' + flask_cors.__version__)"
-        python -c "import PySide6; print('PySide6 version: ' + PySide6.__version__)"
+        python -c "
+        try:
+            import PySide6
+            print('PySide6 version: ' + PySide6.__version__)
+        except ImportError:
+            try:
+                import PyQt5
+                print('PyQt5 version: ' + PyQt5.QtCore.QT_VERSION_STR)
+                print('使用 PyQt5 作为 GUI 后端')
+            except ImportError:
+                print('ERROR: 没有找到可用的 GUI 库')
+                exit(1)
+        "
 
     - name: Create icon file if missing
       run: |
@@ -149,33 +165,86 @@ jobs:
       run: |
         $buildName = "MusicMetadataProcessor_x86"
         
-        python -m PyInstaller `
-          --onefile `
-          --windowed `
-          --name $buildName `
-          --icon=icon.ico `
-          --add-data "icon.ico;." `
-          --hidden-import=flask `
-          --hidden-import=flask_cors `
-          --hidden-import=flask_cors.core `
-          --hidden-import=mutagen `
-          --hidden-import=requests `
-          --hidden-import=PySide6 `
-          --hidden-import=PySide6.QtWidgets `
-          --hidden-import=PySide6.QtCore `
-          --hidden-import=PySide6.QtGui `
-          --hidden-import=PySide6.QtNetwork `
-          --hidden-import=werkzeug.serving `
-          --hidden-import=werkzeug.middleware.dispatcher `
-          --hidden-import=chardet `
-          --hidden-import=charset_normalizer `
-          --hidden-import=idna `
-          --hidden-import=urllib3 `
-          --hidden-import=certifi `
-          --hidden-import=ssl `
-          --clean `
-          --noconfirm `
-          app_gui.py
+        # 检查使用哪个 GUI 库
+        $guiLib = "PySide6"
+        python -c "
+        try:
+            import PySide6
+        except ImportError:
+            try:
+                import PyQt5
+                print('PYQT5_MODE')
+            except ImportError:
+                print('NO_GUI_LIB')
+                exit(1)
+        " > gui_check.txt
+        
+        if (Get-Content gui_check.txt | Select-String "PYQT5_MODE") {
+            $guiLib = "PyQt5"
+            echo "使用 PyQt5 构建 32 位版本"
+        } else {
+            echo "使用 PySide6 构建 32 位版本"
+        }
+        
+        # 构建命令
+        if ($guiLib -eq "PySide6") {
+            python -m PyInstaller `
+              --onefile `
+              --windowed `
+              --name $buildName `
+              --icon=icon.ico `
+              --add-data "icon.ico;." `
+              --hidden-import=flask `
+              --hidden-import=flask_cors `
+              --hidden-import=flask_cors.core `
+              --hidden-import=mutagen `
+              --hidden-import=requests `
+              --hidden-import=PySide6 `
+              --hidden-import=PySide6.QtWidgets `
+              --hidden-import=PySide6.QtCore `
+              --hidden-import=PySide6.QtGui `
+              --hidden-import=PySide6.QtNetwork `
+              --hidden-import=werkzeug.serving `
+              --hidden-import=werkzeug.middleware.dispatcher `
+              --hidden-import=chardet `
+              --hidden-import=charset_normalizer `
+              --hidden-import=idna `
+              --hidden-import=urllib3 `
+              --hidden-import=certifi `
+              --hidden-import=ssl `
+              --clean `
+              --noconfirm `
+              app_gui.py
+        } else {
+            # 使用 PyQt5 的构建命令
+            python -m PyInstaller `
+              --onefile `
+              --windowed `
+              --name $buildName `
+              --icon=icon.ico `
+              --add-data "icon.ico;." `
+              --hidden-import=flask `
+              --hidden-import=flask_cors `
+              --hidden-import=flask_cors.core `
+              --hidden-import=mutagen `
+              --hidden-import=requests `
+              --hidden-import=PyQt5 `
+              --hidden-import=PyQt5.QtWidgets `
+              --hidden-import=PyQt5.QtCore `
+              --hidden-import=PyQt5.QtGui `
+              --hidden-import=PyQt5.QtNetwork `
+              --hidden-import=werkzeug.serving `
+              --hidden-import=werkzeug.middleware.dispatcher `
+              --hidden-import=chardet `
+              --hidden-import=charset_normalizer `
+              --hidden-import=idna `
+              --hidden-import=urllib3 `
+              --hidden-import=certifi `
+              --hidden-import=ssl `
+              --clean `
+              --noconfirm `
+              app_gui.py
+        }
 
         if (Test-Path "dist/$buildName.exe") {
           echo "✅ x86 构建成功！"
