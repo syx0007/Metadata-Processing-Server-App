@@ -1,0 +1,8 @@
+{
+    "cache_dir": "",
+    "host": "127.0.0.1",
+    "port": "5000",
+    "minimize_to_tray": true,
+    "auto_start": false,
+    "start_minimized": false
+}
