@@ -1,7 +1,6 @@
-name: Build Music Metadata Processor - Multi Platform
+name: Build Music Metadata Processor - Windows Only
 
 on:
-  # 明确指定 workflow_dispatch 的输入参数
   workflow_dispatch:
     inputs:
       reason:
@@ -40,18 +39,23 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
-        pip install "pyside6==6.6.1" --timeout=180
+        pip install "pyside6==6.6.1" --timeout=300
 
     - name: Create icon file if missing
       run: |
         if (-not (Test-Path "icon.ico")) {
           echo "Creating placeholder icon..."
-          echo "placeholder" > icon.ico
+          # 创建一个有效的ICO文件占位符
+          $iconContent = [byte[]]@(0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x68, 0x04, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00)
+          [System.IO.File]::WriteAllBytes("icon.ico", $iconContent)
         }
 
     - name: Build Windows executable
       run: |
         $buildName = "MusicMetadataProcessor_windows_${{ matrix.target }}"
+        
+        # 显示当前目录结构用于调试
+        Get-ChildItem .
         
         python -m PyInstaller `
           --onefile `
@@ -61,29 +65,22 @@ jobs:
           --add-data "icon.ico;." `
           --hidden-import=flask `
           --hidden-import=flask_cors `
-          --hidden-import=flask_cors.core `
           --hidden-import=mutagen `
           --hidden-import=requests `
           --hidden-import=PySide6 `
-          --hidden-import=PySide6.QtWidgets `
           --hidden-import=PySide6.QtCore `
           --hidden-import=PySide6.QtGui `
-          --hidden-import=PySide6.QtNetwork `
-          --hidden-import=werkzeug.serving `
-          --hidden-import=werkzeug.middleware.dispatcher `
-          --hidden-import=chardet `
-          --hidden-import=charset_normalizer `
-          --hidden-import=idna `
-          --hidden-import=urllib3 `
-          --hidden-import=certifi `
+          --hidden-import=PySide6.QtWidgets `
           --clean `
           --noconfirm `
           app_gui.py
 
         if (Test-Path "dist/$buildName.exe") {
           echo "✅ Windows ${{ matrix.target }} build successful!"
+          echo "File size: $( (Get-Item "dist/$buildName.exe").Length ) bytes"
         } else {
-          echo "❌ Build failed"
+          echo "❌ Build failed - checking dist directory:"
+          Get-ChildItem "dist" -ErrorAction SilentlyContinue
           exit 1
         }
 
@@ -94,196 +91,8 @@ jobs:
         path: dist/
         if-no-files-found: error
 
-  build-linux:
-    strategy:
-      matrix:
-        include:
-          - architecture: x64
-            target: x64
-            python_version: '3.10'
-
-    runs-on: ubuntu-latest
-    name: Build Linux ${{ matrix.target }}
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python ${{ matrix.python_version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python_version }}
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1 libxcb-xinerama0
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
-        pip install "pyside6==6.6.1" --timeout=180
-
-    - name: Build Linux executable
-      run: |
-        buildName="MusicMetadataProcessor_linux_${{ matrix.target }}"
-        
-        # 对于 Linux，不使用图标以避免问题
-        python -m PyInstaller \
-          --onefile \
-          --name $buildName \
-          --hidden-import=flask \
-          --hidden-import=flask_cors \
-          --hidden-import=flask_cors.core \
-          --hidden-import=mutagen \
-          --hidden-import=requests \
-          --hidden-import=PySide6 \
-          --hidden-import=PySide6.QtWidgets \
-          --hidden-import=PySide6.QtCore \
-          --hidden-import=PySide6.QtGui \
-          --hidden-import=PySide6.QtNetwork \
-          --hidden-import=werkzeug.serving \
-          --hidden-import=werkzeug.middleware.dispatcher \
-          --hidden-import=chardet \
-          --hidden-import=charset_normalizer \
-          --hidden-import=idna \
-          --hidden-import=urllib3 \
-          --hidden-import=certifi \
-          --clean \
-          --noconfirm \
-          app_gui.py
-
-        if [ -f "dist/$buildName" ]; then
-          echo "✅ Linux ${{ matrix.target }} build successful!"
-          chmod +x "dist/$buildName"
-        else
-          echo "❌ Build failed"
-          exit 1
-        fi
-
-    - name: Upload Linux artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: linux-${{ matrix.target }}-build
-        path: dist/
-        if-no-files-found: error
-
-  build-macos:
-    strategy:
-      matrix:
-        include:
-          - architecture: x64
-            target: x64
-            python_version: '3.10'
-          - architecture: ARM64
-            target: arm64
-            python_version: '3.10'
-
-    runs-on: macos-latest
-    name: Build macOS ${{ matrix.target }}
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python ${{ matrix.python_version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python_version }}
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
-        pip install "pyside6==6.6.1" --timeout=180
-        # 安装 Pillow 用于图标转换
-        pip install pillow
-
-    - name: Convert icon to macOS format
-      run: |
-        if [ -f "icon.ico" ]; then
-          echo "Converting icon.ico to icon.icns for macOS..."
-          python -c "
-from PIL import Image
-import os
-
-# 读取 ICO 文件
-img = Image.open('icon.ico')
-# 转换为 PNG 临时文件
-img.save('icon_temp.png')
-
-# 使用系统命令转换为 ICNS (需要安装 iconutil)
-os.system('mkdir icon.iconset')
-os.system('sips -z 16 16 icon_temp.png --out icon.iconset/icon_16x16.png')
-os.system('sips -z 32 32 icon_temp.png --out icon.iconset/icon_16x16@2x.png')
-os.system('sips -z 32 32 icon_temp.png --out icon.iconset/icon_32x32.png')
-os.system('sips -z 64 64 icon_temp.png --out icon.iconset/icon_32x32@2x.png')
-os.system('sips -z 128 128 icon_temp.png --out icon.iconset/icon_128x128.png')
-os.system('sips -z 256 256 icon_temp.png --out icon.iconset/icon_128x128@2x.png')
-os.system('sips -z 256 256 icon_temp.png --out icon.iconset/icon_256x256.png')
-os.system('sips -z 512 512 icon_temp.png --out icon.iconset/icon_256x256@2x.png')
-os.system('sips -z 512 512 icon_temp.png --out icon.iconset/icon_512x512.png')
-os.system('iconutil -c icns icon.iconset -o icon.icns')
-os.system('rm -rf icon.iconset icon_temp.png')
-"
-        else
-          echo "No icon.ico found, creating placeholder..."
-          echo "placeholder" > icon.icns
-        fi
-
-    - name: Build macOS executable
-      run: |
-        buildName="MusicMetadataProcessor_macos_${{ matrix.target }}"
-        
-        # 对于 macOS，使用 onedir 模式避免警告，并使用 icns 图标
-        python -m PyInstaller \
-          --onedir \
-          --windowed \
-          --name $buildName \
-          --icon=icon.icns \
-          --add-data "icon.icns:." \
-          --hidden-import=flask \
-          --hidden-import=flask_cors \
-          --hidden-import=flask_cors.core \
-          --hidden-import=mutagen \
-          --hidden-import=requests \
-          --hidden-import=PySide6 \
-          --hidden-import=PySide6.QtWidgets \
-          --hidden-import=PySide6.QtCore \
-          --hidden-import=PySide6.QtGui \
-          --hidden-import=PySide6.QtNetwork \
-          --hidden-import=werkzeug.serving \
-          --hidden-import=werkzeug.middleware.dispatcher \
-          --hidden-import=chardet \
-          --hidden-import=charset_normalizer \
-          --hidden-import=idna \
-          --hidden-import=urllib3 \
-          --hidden-import=certifi \
-          --clean \
-          --noconfirm \
-          app_gui.py
-
-        if [ -d "dist/$buildName.app" ]; then
-          echo "✅ macOS ${{ matrix.target }} build successful!"
-          # 创建压缩包以便分发
-          cd dist
-          zip -r "$buildName.zip" "$buildName.app"
-          cd ..
-        else
-          echo "❌ Build failed"
-          exit 1
-        fi
-
-    - name: Upload macOS artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-${{ matrix.target }}-build
-        path: dist/
-        if-no-files-found: error
-
   create-release:
-    needs: [build-windows, build-linux, build-macos]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     
@@ -298,6 +107,7 @@ os.system('rm -rf icon.iconset icon_temp.png')
         echo "Available artifacts:"
         find artifacts -type f -name "*" | while read file; do
           echo "  - $file"
+          ls -la "$file"
         done
 
     - name: Create Release
@@ -306,40 +116,25 @@ os.system('rm -rf icon.iconset icon_temp.png')
         files: |
           artifacts/**/*
         body: |
-          # 🎵 音乐元数据处理器 - 多平台版本
+          # 🎵 音乐元数据处理器 - Windows 版本
 
           ## 📦 下载说明
-
-          请根据您的操作系统选择对应的可执行文件：
 
           ### Windows 系统
           - **x86 (32位)**: `MusicMetadataProcessor_windows_x86.exe`
           - **x64 (64位)**: `MusicMetadataProcessor_windows_x64.exe`
 
-          ### Linux 系统
-          - **x64 (64位)**: `MusicMetadataProcessor_linux_x64`
-
-          ### macOS 系统
-          - **Intel芯片**: `MusicMetadataProcessor_macos_x64.app.zip` (解压后运行)
-          - **Apple Silicon (M1/M2)**: `MusicMetadataProcessor_macos_arm64.app.zip` (解压后运行)
-
           ## 🚀 使用说明
-
-          1. **Windows**: 下载对应的 `.exe` 文件，双击运行
-          2. **Linux**: 下载对应的文件，添加执行权限：`chmod +x 文件名`，然后运行
-          3. **macOS**: 下载对应的 `.zip` 文件，解压后双击 `.app` 文件运行
+          1. 下载对应的 `.exe` 文件
+          2. 双击运行即可
 
           ## ⚠️ 注意事项
-
-          - **Windows**: 首次运行可能会被Windows Defender拦截，请选择"更多信息"->"仍要运行"
-          - **macOS**: 首次运行可能需要右键点击并选择"打开"
-          - **Linux**: 可能需要安装相关依赖库
+          - 首次运行可能会被Windows Defender拦截，请选择"更多信息"->"仍要运行"
+          - 建议下载与您系统架构匹配的版本
 
           ## 📊 版本信息
           - 版本: ${{ github.ref_name }}
           - 构建时间: ${{ github.event.repository.updated_at }}
           - Python版本: 3.10
-
-          > 💡 提示：推荐下载与您系统架构匹配的版本以获得最佳性能。
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
