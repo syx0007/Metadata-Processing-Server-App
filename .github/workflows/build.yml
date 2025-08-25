@@ -34,15 +34,16 @@ jobs:
         python --version
         python -c "import platform; print(f'Architecture: {platform.machine()}')"
 
-    - name: Install dependencies with retry
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip config set global.timeout 120
-        pip config set global.retries 3
-        
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
-        pip install "pyside6==6.6.1" --timeout=180
         
+        # 安装PySide6 - 使用兼容版本
+        echo "正在安装 PySide6..."
+        pip install "pyside6>=6.5.0,<6.7.0" --timeout=180
+        
+        # 验证安装
         python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
         python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
 
@@ -50,13 +51,19 @@ jobs:
       run: |
         if (-not (Test-Path "icon.ico")) {
           echo "Windows图标文件不存在，创建占位图标..."
-          # 可以使用Python创建简单图标或下载一个默认图标
+          # 使用Pillow创建简单图标
           python -c "
-          from PIL import Image, ImageDraw
-          img = Image.new('RGB', (256, 256), color='blue')
-          d = ImageDraw.Draw(img)
-          d.text((80, 120), 'MMP', fill='white')
-          img.save('icon.ico', format='ICO', sizes=[(256, 256)])
+          try:
+              from PIL import Image, ImageDraw, ImageFont
+              img = Image.new('RGB', (256, 256), color='blue')
+              d = ImageDraw.Draw(img)
+              d.text((80, 120), 'MMP', fill='white')
+              img.save('icon.ico', format='ICO', sizes=[(256, 256)])
+              print('图标创建成功')
+          except ImportError:
+              # 如果Pillow不可用，创建空文件
+              echo 'placeholder' > icon.ico
+              print('使用占位图标')
           "
         }
 
@@ -64,6 +71,7 @@ jobs:
       run: |
         $buildName = "MusicMetadataProcessor_win_${{ matrix.target }}"
         
+        # 构建命令
         python -m PyInstaller `
           --onefile `
           --windowed `
@@ -88,14 +96,6 @@ jobs:
           --hidden-import=urllib3 `
           --hidden-import=certifi `
           --hidden-import=ssl `
-          --hidden-import=json `
-          --hidden-import=os `
-          --hidden-import=sys `
-          --hidden-import=threading `
-          --hidden-import=time `
-          --hidden-import=re `
-          --hidden-import=base64 `
-          --hidden-import=hashlib `
           --clean `
           --noconfirm `
           app_gui.py
@@ -126,7 +126,7 @@ jobs:
             target: arm64
             python_version: '3.10'
 
-    runs-on: macos-latest
+    runs-on: ${{ matrix.architecture == 'arm64' && 'macos-15' || 'macos-latest' }}
 
     steps:
     - name: Checkout code
@@ -147,60 +147,35 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
-        pip install "pyside6==6.6.1"
-        pip install Pillow  # 用于创建图标
+        pip install "pyside6>=6.5.0,<6.7.0"
         
         python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
         python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
 
-    - name: Create macOS icon if missing
+    - name: Create macOS icon
       run: |
-        if [ ! -f "icon.icns" ]; then
-          echo "macOS图标文件不存在，创建PNG图标..."
-          python -c "
-          from PIL import Image, ImageDraw
-          img = Image.new('RGB', (512, 512), color='blue')
-          d = ImageDraw.Draw(img)
-          d.text((180, 230), 'MMP', fill='white', size=100)
-          img.save('icon.png', format='PNG')
-          "
-          
-          # 如果有iconutil工具，可以创建icns，否则使用PNG
-          if command -v iconutil &> /dev/null; then
-            mkdir icon.iconset
-            sips -z 16 16 icon.png --out icon.iconset/icon_16x16.png
-            sips -z 32 32 icon.png --out icon.iconset/icon_16x16@2x.png
-            sips -z 32 32 icon.png --out icon.iconset/icon_32x32.png
-            sips -z 64 64 icon.png --out icon.iconset/icon_32x32@2x.png
-            sips -z 128 128 icon.png --out icon.iconset/icon_128x128.png
-            sips -z 256 256 icon.png --out icon.iconset/icon_128x128@2x.png
-            sips -z 256 256 icon.png --out icon.iconset/icon_256x256.png
-            sips -z 512 512 icon.png --out icon.iconset/icon_256x256@2x.png
-            sips -z 512 512 icon.png --out icon.iconset/icon_512x512.png
-            iconutil -c icns icon.iconset -o icon.icns
-            rm -rf icon.iconset
-          fi
-        fi
+        # 创建PNG图标
+        python -c "
+        try:
+            from PIL import Image, ImageDraw
+            img = Image.new('RGB', (512, 512), color='blue')
+            d = ImageDraw.Draw(img)
+            d.text((180, 230), 'MMP', fill='white')
+            img.save('icon.png', format='PNG')
+            print('PNG图标创建成功')
+        except ImportError:
+            print('Pillow不可用，跳过图标创建')
+        "
 
     - name: Build executable for macOS
       run: |
         buildName="MusicMetadataProcessor_mac_${{ matrix.target }}"
         
-        # 如果有icns文件使用它，否则使用PNG
-        if [ -f "icon.icns" ]; then
-          iconArg="--icon=icon.icns"
-          iconData="icon.icns:."
-        else
-          iconArg="--icon=icon.png"
-          iconData="icon.png:."
-        fi
-        
         python -m PyInstaller \
           --onefile \
           --windowed \
           --name "$buildName" \
-          $iconArg \
-          --add-data "$iconData" \
+          --add-data "icon.png:." \
           --hidden-import=flask \
           --hidden-import=flask_cors \
           --hidden-import=flask_cors.core \
@@ -219,14 +194,6 @@ jobs:
           --hidden-import=urllib3 \
           --hidden-import=certifi \
           --hidden-import=ssl \
-          --hidden-import=json \
-          --hidden-import=os \
-          --hidden-import=sys \
-          --hidden-import=threading \
-          --hidden-import=time \
-          --hidden-import=re \
-          --hidden-import=base64 \
-          --hidden-import=hashlib \
           --clean \
           --noconfirm \
           app_gui.py
@@ -238,11 +205,6 @@ jobs:
           echo "❌ macOS构建失败"
           exit 1
         fi
-
-    - name: Create macOS app bundle (可选)
-      run: |
-        # 如果需要创建.app bundle，可以添加此步骤
-        echo "如需创建.app bundle，请参考PyInstaller的--osx-bundle-identifier选项"
 
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
@@ -257,10 +219,7 @@ jobs:
         include:
           - architecture: x64
             target: x86_64
-            python_version: '3.10'
-          - architecture: ARM64
-            target: aarch64
-            python_version: '3.10'
+            python_version: '3.11'  # Ubuntu 24.04 默认Python版本
 
     runs-on: ubuntu-latest
 
@@ -288,24 +247,25 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
-        pip install "pyside6==6.6.1"
-        pip install Pillow
+        pip install "pyside6>=6.5.0,<6.7.0"
         
         python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
         python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
 
-    - name: Create Linux icon if missing
+    - name: Create Linux icon
       run: |
-        if [ ! -f "icon.png" ]; then
-          echo "Linux图标文件不存在，创建PNG图标..."
-          python -c "
-          from PIL import Image, ImageDraw
-          img = Image.new('RGB', (256, 256), color='green')
-          d = ImageDraw.Draw(img)
-          d.text((80, 120), 'MMP', fill='white')
-          img.save('icon.png', format='PNG')
-          "
-        fi
+        # 创建PNG图标
+        python -c "
+        try:
+            from PIL import Image, ImageDraw
+            img = Image.new('RGB', (256, 256), color='green')
+            d = ImageDraw.Draw(img)
+            d.text((80, 120), 'MMP', fill='white')
+            img.save('icon.png', format='PNG')
+            print('PNG图标创建成功')
+        except ImportError:
+            print('Pillow不可用，跳过图标创建')
+        "
 
     - name: Build executable for Linux
       run: |
@@ -315,7 +275,6 @@ jobs:
           --onefile \
           --windowed \
           --name "$buildName" \
-          --icon=icon.png \
           --add-data "icon.png:." \
           --hidden-import=flask \
           --hidden-import=flask_cors \
@@ -335,14 +294,6 @@ jobs:
           --hidden-import=urllib3 \
           --hidden-import=certifi \
           --hidden-import=ssl \
-          --hidden-import=json \
-          --hidden-import=os \
-          --hidden-import=sys \
-          --hidden-import=threading \
-          --hidden-import=time \
-          --hidden-import=re \
-          --hidden-import=base64 \
-          --hidden-import=hashlib \
           --clean \
           --noconfirm \
           app_gui.py
@@ -387,15 +338,14 @@ jobs:
 
           ## 版本信息
           - 构建时间: ${{ github.event.repository.updated_at }}
-          - Python版本: 3.10
+          - Python版本: 3.10/3.11
 
           ## 可用平台
           - Windows x86 (32位) - .exe 文件
           - Windows x86_64 (64位) - .exe 文件
-          - macOS x86_64 (Intel) - 无扩展名可执行文件
-          - macOS arm64 (Apple Silicon) - 无扩展名可执行文件
-          - Linux x86_64 (64位) - 无扩展名可执行文件
-          - Linux aarch64 (ARM64) - 无扩展名可执行文件
+          - macOS x86_64 (Intel) - 可执行文件
+          - macOS arm64 (Apple Silicon) - 可执行文件
+          - Linux x86_64 (64位) - 可执行文件
 
           ## 使用说明
           ### Windows
@@ -407,7 +357,6 @@ jobs:
           2. 打开终端，导航到下载目录
           3. 给文件添加执行权限: `chmod +x MusicMetadataProcessor_macos_*`
           4. 运行: `./MusicMetadataProcessor_macos_*`
-          5. 或者右键点击文件，选择"打开"
 
           ### Linux
           1. 下载对应架构的文件
