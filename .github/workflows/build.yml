@@ -96,7 +96,7 @@ jobs:
           --hidden-import=hashlib `
           --clean `
           --noconfirm `
-          gui.py
+          app_gui.py
 
         # 检查构建是否成功
         if (Test-Path "dist/$buildName.exe") {
