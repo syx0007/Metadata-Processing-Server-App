@@ -25,8 +25,8 @@ jobs:
     - name: Display Python info
       run: |
         python --version
-        python -c "import platform; print(f'Architecture: {platform.machine()}')"
-        python -c "import struct; print(f'Pointer size: {struct.calcsize(''P'') * 8} bits')"
+        python -c "import platform; print('Architecture: ' + platform.machine())"
+        python -c "import struct; print('Pointer size: ' + str(struct.calcsize('P') * 8) + ' bits')"
 
     - name: Install dependencies
       run: |
@@ -42,8 +42,8 @@ jobs:
         pip install "pyside6==6.6.1" --timeout=180
         
         # 验证安装
-        python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
-        python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
+        python -c "import flask_cors; print('flask_cors version: ' + flask_cors.__version__)"
+        python -c "import PySide6; print('PySide6 version: ' + PySide6.__version__)"
 
     - name: Create icon file if missing
       run: |
@@ -118,8 +118,8 @@ jobs:
     - name: Display Python info
       run: |
         python --version
-        python -c "import platform; print(f'Architecture: {platform.machine()}')"
-        python -c "import struct; print(f'Pointer size: {struct.calcsize(''P'') * 8} bits')"
+        python -c "import platform; print('Architecture: ' + platform.machine())"
+        python -c "import struct; print('Pointer size: ' + str(struct.calcsize('P') * 8) + ' bits')"
 
     - name: Install dependencies
       run: |
@@ -135,8 +135,8 @@ jobs:
         pip install "pyside6==6.6.1" --timeout=180
         
         # 验证安装
-        python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
-        python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
+        python -c "import flask_cors; print('flask_cors version: ' + flask_cors.__version__)"
+        python -c "import PySide6; print('PySide6 version: ' + PySide6.__version__)"
 
     - name: Create icon file if missing
       run: |
