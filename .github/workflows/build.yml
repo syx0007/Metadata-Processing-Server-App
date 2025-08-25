@@ -1,9 +1,10 @@
 name: Build Music Metadata Processor - Multi Platform
 
+# 确保 workflow_dispatch 在第一位
 on:
+  workflow_dispatch:
   push:
     tags: ['v*']
-  workflow_dispatch:
 
 jobs:
   build-windows:
