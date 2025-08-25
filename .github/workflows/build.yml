@@ -6,28 +6,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows:
+  build-windows-x64:
+    runs-on: windows-latest
     strategy:
       matrix:
-        include:
-          - architecture: x64
-            target: x86_64
-            python_version: '3.10'
-          - architecture: x86
-            target: i686
-            python_version: '3.10'
-
-    runs-on: windows-latest
+        python_version: ['3.10']
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python_version }}
+    - name: Set up Python ${{ matrix.python_version }} (x64)
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python_version }}
-        architecture: ${{ matrix.architecture }}
+        architecture: x64
 
     - name: Display Python info
       run: |
@@ -35,18 +28,17 @@ jobs:
         python -c "import platform; print(f'Architecture: {platform.machine()}')"
         python -c "import struct; print(f'Pointer size: {struct.calcsize(\"P\") * 8} bits')"
 
-    - name: Install dependencies with retry
+    - name: Install dependencies
       run: |
-        # 设置 pip 重试和超时
         python -m pip install --upgrade pip
         pip config set global.timeout 120
         pip config set global.retries 3
         
-        # 安装所有依赖，包括 flask_cors
+        # 安装核心依赖
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
         
-        # 安装 PySide6 - 注意32位和64位可能需要不同的处理
-        echo "正在安装 PySide6..."
+        # 安装 PySide6
+        echo "正在安装 PySide6 (x64)..."
         pip install "pyside6==6.6.1" --timeout=180
         
         # 验证安装
@@ -55,20 +47,15 @@ jobs:
 
     - name: Create icon file if missing
       run: |
-        # 如果图标不存在，创建一个简单的占位图标
         if (-not (Test-Path "icon.ico")) {
           echo "图标文件不存在，创建占位图标..."
-          # 这里可以添加创建简单图标的逻辑，或者跳过图标参数
-          # 暂时先创建一个空文件
           echo "placeholder" > icon.ico
         }
 
-    - name: Build executable
+    - name: Build x64 executable
       run: |
-        # 设置构建参数
-        $buildName = "MusicMetadataProcessor_${{ matrix.target }}"
+        $buildName = "MusicMetadataProcessor_x64"
         
-        # 构建命令，添加 flask_cors 相关隐藏导入
         python -m PyInstaller `
           --onefile `
           --windowed `
@@ -93,38 +80,120 @@ jobs:
           --hidden-import=urllib3 `
           --hidden-import=certifi `
           --hidden-import=ssl `
-          --hidden-import=json `
-          --hidden-import=os `
-          --hidden-import=sys `
-          --hidden-import=threading `
-          --hidden-import=time `
-          --hidden-import=re `
-          --hidden-import=base64 `
-          --hidden-import=hashlib `
           --clean `
           --noconfirm `
           app_gui.py
 
-        # 检查构建是否成功
         if (Test-Path "dist/$buildName.exe") {
-          echo "✅ 构建成功！"
-          # 重命名以包含架构信息
-          $archName = if ("${{ matrix.architecture }}" -eq "x64") { "x86_64" } else { "i686" }
-          Move-Item "dist/$buildName.exe" "dist/MusicMetadataProcessor_windows_$archName.exe"
+          echo "✅ x64 构建成功！"
+          Move-Item "dist/$buildName.exe" "dist/MusicMetadataProcessor_windows_x64.exe"
         } else {
-          echo "❌ 构建失败，输出文件不存在"
+          echo "❌ x64 构建失败"
           exit 1
         }
 
-    - name: Upload artifacts
+    - name: Upload x64 artifact
       uses: actions/upload-artifact@v4
       with:
-        name: windows-${{ matrix.architecture }}-build
+        name: windows-x64-build
+        path: dist/
+        if-no-files-found: error
+
+  build-windows-x86:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python_version: ['3.10']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python_version }} (x86)
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python_version }}
+        architecture: x86
+
+    - name: Display Python info
+      run: |
+        python --version
+        python -c "import platform; print(f'Architecture: {platform.machine()}')"
+        python -c "import struct; print(f'Pointer size: {struct.calcsize(\"P\") * 8} bits')"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip config set global.timeout 120
+        pip config set global.retries 3
+        
+        # 安装核心依赖
+        pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
+        
+        # 安装 PySide6
+        echo "正在安装 PySide6 (x86)..."
+        pip install "pyside6==6.6.1" --timeout=180
+        
+        # 验证安装
+        python -c "import flask_cors; print(f'flask_cors version: {flask_cors.__version__}')"
+        python -c "import PySide6; print(f'PySide6 version: {PySide6.__version__}')"
+
+    - name: Create icon file if missing
+      run: |
+        if (-not (Test-Path "icon.ico")) {
+          echo "图标文件不存在，创建占位图标..."
+          echo "placeholder" > icon.ico
+        }
+
+    - name: Build x86 executable
+      run: |
+        $buildName = "MusicMetadataProcessor_x86"
+        
+        python -m PyInstaller `
+          --onefile `
+          --windowed `
+          --name $buildName `
+          --icon=icon.ico `
+          --add-data "icon.ico;." `
+          --hidden-import=flask `
+          --hidden-import=flask_cors `
+          --hidden-import=flask_cors.core `
+          --hidden-import=mutagen `
+          --hidden-import=requests `
+          --hidden-import=PySide6 `
+          --hidden-import=PySide6.QtWidgets `
+          --hidden-import=PySide6.QtCore `
+          --hidden-import=PySide6.QtGui `
+          --hidden-import=PySide6.QtNetwork `
+          --hidden-import=werkzeug.serving `
+          --hidden-import=werkzeug.middleware.dispatcher `
+          --hidden-import=chardet `
+          --hidden-import=charset_normalizer `
+          --hidden-import=idna `
+          --hidden-import=urllib3 `
+          --hidden-import=certifi `
+          --hidden-import=ssl `
+          --clean `
+          --noconfirm `
+          app_gui.py
+
+        if (Test-Path "dist/$buildName.exe") {
+          echo "✅ x86 构建成功！"
+          Move-Item "dist/$buildName.exe" "dist/MusicMetadataProcessor_windows_x86.exe"
+        } else {
+          echo "❌ x86 构建失败"
+          exit 1
+        }
+
+    - name: Upload x86 artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-x86-build
         path: dist/
         if-no-files-found: error
 
   create-release:
-    needs: build-windows
+    needs: [build-windows-x64, build-windows-x86]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     
@@ -136,15 +205,8 @@ jobs:
 
     - name: List downloaded artifacts
       run: |
-        find artifacts -type f -name "*.exe" | while read file; do
-          echo "找到可执行文件: $file"
-          # 获取文件架构信息
-          if echo "$file" | grep -q "x86_64"; then
-            echo "  - 架构: 64位 (x86_64)"
-          elif echo "$file" | grep -q "i686"; then
-            echo "  - 架构: 32位 (i686)"
-          fi
-        done
+        echo "找到的可执行文件:"
+        find artifacts -name "*.exe" -exec echo "  - {}" \;
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -168,8 +230,12 @@ jobs:
           - .NET Framework 4.5 或更高版本
 
           ## 架构选择指南
-          - **64位系统**: 请下载文件名包含 `x86_64` 的文件
-          - **32位系统**: 请下载文件名包含 `i686` 的文件
+          - **64位系统**: 请下载文件名包含 `x64` 的文件
+          - **32位系统**: 请下载文件名包含 `x86` 的文件
+
+          ## 如何确定系统架构
+          - 按 Win + R 键，输入 "winver" 查看系统信息
+          - 或在设置 > 系统 > 关于中查看系统类型
 
           ## 注意事项
           - 首次运行可能会被Windows Defender拦截，请选择"更多信息"->"仍要运行"
