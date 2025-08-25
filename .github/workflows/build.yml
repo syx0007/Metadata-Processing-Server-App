@@ -26,7 +26,7 @@ jobs:
       run: |
         python --version
         python -c "import platform; print(f'Architecture: {platform.machine()}')"
-        python -c "import struct; print(f'Pointer size: {struct.calcsize(\"P\") * 8} bits')"
+        python -c "import struct; print(f'Pointer size: {struct.calcsize(''P'') * 8} bits')"
 
     - name: Install dependencies
       run: |
@@ -119,7 +119,7 @@ jobs:
       run: |
         python --version
         python -c "import platform; print(f'Architecture: {platform.machine()}')"
-        python -c "import struct; print(f'Pointer size: {struct.calcsize(\"P\") * 8} bits')"
+        python -c "import struct; print(f'Pointer size: {struct.calcsize(''P'') * 8} bits')"
 
     - name: Install dependencies
       run: |
