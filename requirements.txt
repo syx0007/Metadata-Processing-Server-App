@@ -1,0 +1,5 @@
+flask>=2.3.0
+mutagen>=1.46.0
+requests>=2.31.0
+pyside6>=6.5.0
+pyinstaller>=5.13.0
