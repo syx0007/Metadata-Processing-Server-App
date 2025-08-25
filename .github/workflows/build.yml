@@ -14,10 +14,7 @@ jobs:
             target: x86
             python_version: '3.10'
           - architecture: x64
-            target: x86_64
-            python_version: '3.10'
-          - architecture: ARM64
-            target: arm64
+            target: x64
             python_version: '3.10'
 
     runs-on: windows-latest
@@ -32,11 +29,6 @@ jobs:
       with:
         python-version: ${{ matrix.python_version }}
         architecture: ${{ matrix.architecture }}
-
-    - name: Display Python info
-      run: |
-        python --version
-        python -c "import platform; print(f'Architecture: {platform.machine()}')"
 
     - name: Install dependencies
       run: |
@@ -101,10 +93,7 @@ jobs:
       matrix:
         include:
           - architecture: x64
-            target: x86_64
-            python_version: '3.10'
-          - architecture: ARM64
-            target: arm64
+            target: x64
             python_version: '3.10'
 
     runs-on: ubuntu-latest
@@ -130,22 +119,14 @@ jobs:
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
         pip install "pyside6==6.6.1" --timeout=180
 
-    - name: Create icon file if missing
-      run: |
-        if [ ! -f "icon.ico" ]; then
-          echo "Creating placeholder icon..."
-          echo "placeholder" > icon.ico
-        fi
-
     - name: Build Linux executable
       run: |
         buildName="MusicMetadataProcessor_linux_${{ matrix.target }}"
         
+        # 对于 Linux，不使用图标以避免问题
         python -m PyInstaller \
           --onefile \
           --name $buildName \
-          --icon=icon.ico \
-          --add-data "icon.ico:." \
           --hidden-import=flask \
           --hidden-import=flask_cors \
           --hidden-import=flask_cors.core \
@@ -169,7 +150,6 @@ jobs:
 
         if [ -f "dist/$buildName" ]; then
           echo "✅ Linux ${{ matrix.target }} build successful!"
-          # 添加可执行权限
           chmod +x "dist/$buildName"
         else
           echo "❌ Build failed"
@@ -188,7 +168,7 @@ jobs:
       matrix:
         include:
           - architecture: x64
-            target: x86_64
+            target: x64
             python_version: '3.10'
           - architecture: ARM64
             target: arm64
@@ -211,24 +191,52 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller==6.15.0 flask==3.1.2 mutagen==1.47.0 requests==2.32.5 flask_cors==4.0.0
         pip install "pyside6==6.6.1" --timeout=180
+        # 安装 Pillow 用于图标转换
+        pip install pillow
 
-    - name: Create icon file if missing
+    - name: Convert icon to macOS format
       run: |
-        if [ ! -f "icon.ico" ]; then
-          echo "Creating placeholder icon..."
-          echo "placeholder" > icon.ico
+        if [ -f "icon.ico" ]; then
+          echo "Converting icon.ico to icon.icns for macOS..."
+          python -c "
+from PIL import Image
+import os
+
+# 读取 ICO 文件
+img = Image.open('icon.ico')
+# 转换为 PNG 临时文件
+img.save('icon_temp.png')
+
+# 使用系统命令转换为 ICNS (需要安装 iconutil)
+os.system('mkdir icon.iconset')
+os.system('sips -z 16 16 icon_temp.png --out icon.iconset/icon_16x16.png')
+os.system('sips -z 32 32 icon_temp.png --out icon.iconset/icon_16x16@2x.png')
+os.system('sips -z 32 32 icon_temp.png --out icon.iconset/icon_32x32.png')
+os.system('sips -z 64 64 icon_temp.png --out icon.iconset/icon_32x32@2x.png')
+os.system('sips -z 128 128 icon_temp.png --out icon.iconset/icon_128x128.png')
+os.system('sips -z 256 256 icon_temp.png --out icon.iconset/icon_128x128@2x.png')
+os.system('sips -z 256 256 icon_temp.png --out icon.iconset/icon_256x256.png')
+os.system('sips -z 512 512 icon_temp.png --out icon.iconset/icon_256x256@2x.png')
+os.system('sips -z 512 512 icon_temp.png --out icon.iconset/icon_512x512.png')
+os.system('iconutil -c icns icon.iconset -o icon.icns')
+os.system('rm -rf icon.iconset icon_temp.png')
+"
+        else
+          echo "No icon.ico found, creating placeholder..."
+          echo "placeholder" > icon.icns
         fi
 
     - name: Build macOS executable
       run: |
         buildName="MusicMetadataProcessor_macos_${{ matrix.target }}"
         
+        # 对于 macOS，使用 onedir 模式避免警告，并使用 icns 图标
         python -m PyInstaller \
-          --onefile \
+          --onedir \
           --windowed \
           --name $buildName \
-          --icon=icon.ico \
-          --add-data "icon.ico:." \
+          --icon=icon.icns \
+          --add-data "icon.icns:." \
           --hidden-import=flask \
           --hidden-import=flask_cors \
           --hidden-import=flask_cors.core \
@@ -250,10 +258,12 @@ jobs:
           --noconfirm \
           app_gui.py
 
-        if [ -f "dist/$buildName" ]; then
+        if [ -d "dist/$buildName.app" ]; then
           echo "✅ macOS ${{ matrix.target }} build successful!"
-          # 添加可执行权限
-          chmod +x "dist/$buildName"
+          # 创建压缩包以便分发
+          cd dist
+          zip -r "$buildName.zip" "$buildName.app"
+          cd ..
         else
           echo "❌ Build failed"
           exit 1
@@ -294,40 +304,35 @@ jobs:
 
           ## 📦 下载说明
 
-          请根据您的操作系统和架构选择对应的可执行文件：
+          请根据您的操作系统选择对应的可执行文件：
 
           ### Windows 系统
           - **x86 (32位)**: `MusicMetadataProcessor_windows_x86.exe`
-          - **x64 (64位)**: `MusicMetadataProcessor_windows_x86_64.exe`
-          - **ARM64**: `MusicMetadataProcessor_windows_arm64.exe`
+          - **x64 (64位)**: `MusicMetadataProcessor_windows_x64.exe`
 
           ### Linux 系统
-          - **x64 (64位)**: `MusicMetadataProcessor_linux_x86_64`
-          - **ARM64**: `MusicMetadataProcessor_linux_arm64`
+          - **x64 (64位)**: `MusicMetadataProcessor_linux_x64`
 
           ### macOS 系统
-          - **Intel芯片**: `MusicMetadataProcessor_macos_x86_64`
-          - **Apple Silicon (M1/M2)**: `MusicMetadataProcessor_macos_arm64`
+          - **Intel芯片**: `MusicMetadataProcessor_macos_x64.app.zip` (解压后运行)
+          - **Apple Silicon (M1/M2)**: `MusicMetadataProcessor_macos_arm64.app.zip` (解压后运行)
 
           ## 🚀 使用说明
 
           1. **Windows**: 下载对应的 `.exe` 文件，双击运行
           2. **Linux**: 下载对应的文件，添加执行权限：`chmod +x 文件名`，然后运行
-          3. **macOS**: 下载对应的文件，添加执行权限：`chmod +x 文件名`，然后运行
+          3. **macOS**: 下载对应的 `.zip` 文件，解压后双击 `.app` 文件运行
 
           ## ⚠️ 注意事项
 
           - **Windows**: 首次运行可能会被Windows Defender拦截，请选择"更多信息"->"仍要运行"
-          - **Linux/macOS**: 可能需要安装相关依赖库
-          - 所有文件均已添加数字签名和时间戳
+          - **macOS**: 首次运行可能需要右键点击并选择"打开"
+          - **Linux**: 可能需要安装相关依赖库
 
           ## 📊 版本信息
           - 版本: ${{ github.ref_name }}
           - 构建时间: ${{ github.event.repository.updated_at }}
           - Python版本: 3.10
-
-          ## 🔧 技术支持
-          如有问题，请提交 Issue 或联系开发团队。
 
           > 💡 提示：推荐下载与您系统架构匹配的版本以获得最佳性能。
       env:
