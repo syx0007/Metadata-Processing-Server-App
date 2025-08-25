@@ -1,8 +1,13 @@
 name: Build Music Metadata Processor - Multi Platform
 
-# 确保 workflow_dispatch 在第一位
 on:
+  # 明确指定 workflow_dispatch 的输入参数
   workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual run'
+        required: false
+        default: 'Manual trigger'
   push:
     tags: ['v*']
 
